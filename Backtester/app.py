@@ -542,6 +542,43 @@ def show_set_comparison(results, labels):
             "To compare diversified vs plain-random draws, run once with each "
             "mode in the sidebar and compare these two averages."
         )
+
+        per_strategy = {}
+        for _, res in results:
+            for _, row in res["portfolio_table"].iterrows():
+                stats = per_strategy.setdefault(row["Strategy"], {"growth": [], "sharpe": []})
+                stats["growth"].append(row["Test return (%)"])
+                stats["sharpe"].append(row["Test Sharpe"])
+        strategy_rows = [
+            {
+                "Strategy": name,
+                "Sets": len(s["growth"]),
+                "Avg growth (%)": float(np.mean(s["growth"])),
+                "Avg Sharpe": float(np.mean(s["sharpe"])),
+            }
+            for name, s in per_strategy.items()
+        ]
+        strategy_table = pd.DataFrame(strategy_rows).sort_values(
+            "Avg growth (%)", ascending=False, na_position="last"
+        ).reset_index(drop=True)
+        st.markdown("**Average return by strategy, across all random sets**")
+        display_table(
+            strategy_table,
+            {
+                "Strategy": "Strategy",
+                "Sets": "Sets tested",
+                "Avg growth (%)": "Average growth (%)",
+                "Avg Sharpe": "Average Sharpe",
+            },
+            {"Return": METRIC_HELP["Return"], "Sharpe": METRIC_HELP["Sharpe"]},
+            formats={"Sets": "%d"},
+            highlight=[i == 0 for i in range(len(strategy_table))],
+        )
+        st.caption(
+            "Unlike the per-set table above — where each set picks its own "
+            "winner — this averages every strategy over every set's test "
+            "window, smoothing out single-set luck."
+        )
     st.caption(
         "Ranked by each set's best model + rule result; the results in both tabs "
         "below follow this selection. Fair warning: picking the best of several "
