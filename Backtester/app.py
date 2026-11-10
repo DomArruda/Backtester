@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import warnings
 from datetime import date, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,9 @@ warnings.filterwarnings("ignore")
 TRAIN_SHARE = 0.70          # 70% of history teaches, the last 30% grades
 RF_ANNUAL = 4.0             # annual risk-free rate (%)
 BAND = 0.005                # strong-signal band for one of the trading rules
+
+# Resolve relative to this file: Streamlit Cloud runs from the repo root.
+CAPYBARA = str(Path(__file__).resolve().parent / "capybara.png")
 
 TRAIN_SHARE_LABEL = "70%"
 
@@ -589,7 +593,7 @@ def show_set_comparison(results, labels):
 
 def main():
     st.set_page_config(page_title="Portfolio + Forecast Backtester",
-                       page_icon="capybara.png", layout="wide")
+                       page_icon=CAPYBARA, layout="wide")
     st.title("Portfolio + Forecast Backtester")
     st.caption(
         "Pick stocks, see how different portfolio splits would have done, test "
@@ -724,7 +728,7 @@ def main():
     if "result" not in st.session_state:
         image_col, text_col = st.columns([1, 3], gap="medium")
         with image_col:
-            st.image("capybara.png", width=150)
+            st.image(CAPYBARA, width=150)
         with text_col:
             st.markdown("### Pick stocks, split your money, test the forecasts")
             st.markdown(
