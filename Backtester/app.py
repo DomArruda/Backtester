@@ -185,7 +185,7 @@ def show_portfolios(result):
     best = result["best_portfolio"]
     row = table.loc[table["Strategy"] == best].iloc[0]
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Best strategy", best)
+    c1.metric("Best optimization", best)
     c2.metric(
         "Turned $" f"{result['capital']:,.0f} into",
         f"${result['capital'] * (1.0 + row['Test return (%)'] / 100.0):,.0f}",
@@ -199,7 +199,9 @@ def show_portfolios(result):
     st.caption(
         f"Winning algorithm: **{STRATEGY_ALGOS.get(best, best)}** — chosen by its "
         "test-window result (a peek at the exam, though the splits themselves "
-        "used training data only), so treat it as a hint, not a promise."
+        "used training data only), so treat it as a hint, not a promise. The "
+        "default path is simply buying and holding these same stocks — the "
+        "'vs buy & hold' arrow shows whether going off that path paid off."
     )
 
     st.markdown(f"**All {len(table)} strategies, compared on this stock set**")
@@ -331,7 +333,9 @@ def show_forecasts_and_rules(result):
         "Everything below is directly verifiable: every line and number is the "
         "real outcome of trading on the test window — no guessed returns are "
         "plotted, only what each rule would actually have earned, minus "
-        "trading costs."
+        "trading costs. The default path is buy & hold — buy the set, do "
+        "nothing; every optimization and rule is an attempt to do better by "
+        "going off that path."
     )
     table = result["combo_table"]
     if table.empty:
@@ -510,9 +514,13 @@ def show_set_comparison(results, labels):
     rows = []
     per_strategy = {}
     per_rule = {}
+    maes_all = []
     for i, (tickers, res) in enumerate(results, 1):
         table = res["portfolio_table"]
         row = table.loc[table["Strategy"] == res["best_portfolio"]].iloc[0]
+        maes_all.append(float(np.nanmean(
+            res["portfolio_forecast_table"]["MAE (%)"].to_numpy(dtype=float)
+        )))
         best_combo = res["combo_table"].iloc[0]
         rows.append({
             "Set": f"Set {i}",
@@ -541,17 +549,20 @@ def show_set_comparison(results, labels):
     sel_rule_avgs = selected["combo_table"].groupby("Rule")["Net return (%)"].mean()
     best_rule_set = sel_rule_avgs.idxmax()
     st.markdown("**The selected set's winner**")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Best strategy", selected["best_portfolio"])
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Best optimization", selected["best_portfolio"])
     c2.metric("Growth", f"{sel_row['Test return (%)']:+.2f}%", help=METRIC_HELP["Return"])
     c3.metric("Best combo result", f"{sel_combo['Net return (%)']:+.2f}%",
               help="The best single model + rule combination in this set.")
-    c4.metric("Best rule (any model)", best_rule_set,
+    c4.metric("Best trading rule", best_rule_set,
               delta=f"{sel_rule_avgs[best_rule_set]:+.2f}% avg across models",
               help="The rule whose average over every model is best in this set "
                    "— it measures the rule itself, not one model's quality.")
     c5.metric("Worst losing stretch", f"{sel_row['Test max drawdown (%)']:.2f}%",
               help=METRIC_HELP["Drawdown"])
+    c6.metric("Average guess miss (MAE)", f"{maes_all[labels.index(st.session_state['set_view'])]:.2f}%",
+              help="The mean of every model's mean absolute error on this set — "
+                   "guess quality alone, independent of any optimization or rule.")
 
     avg_growth = float(np.nanmean([r["Growth (%)"] for r in rows]))
     avg_rule = float(np.nanmean([r["Best rule result (%)"] for r in rows]))
@@ -564,19 +575,22 @@ def show_set_comparison(results, labels):
         return float(np.nanmean(vals)) if np.isfinite(vals).any() else np.nan
     best_rule_overall = max(per_rule, key=lambda r: rule_avg(r, "net"))
     st.markdown("**Across all random sets**")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Average growth", f"{avg_growth:+.2f}%",
               help="The mean of the per-set growth — a fairer statistic than the "
                    "single best set, which is luck-inflated.")
     c2.metric("Average best-combo result", f"{avg_rule:+.2f}%",
               help="The mean of each set's best model + rule result.")
-    c3.metric("Best strategy on average", best_avg_name)
-    c4.metric("Best rule on average", best_rule_overall,
+    c3.metric("Best optimization on average", best_avg_name)
+    c4.metric("Best trading rule on average", best_rule_overall,
               delta=f"{rule_avg(best_rule_overall, 'net'):+.2f}% avg across sets and models",
               help="The rule whose average over every model and every set is "
                    "best — the most dependable rule overall.")
-    c5.metric("Best strategy's avg Sharpe", f"{avg_of(best_avg_name, 'sharpe'):.2f}",
+    c5.metric("Best optimization's avg Sharpe", f"{avg_of(best_avg_name, 'sharpe'):.2f}",
               help=METRIC_HELP["Sharpe"])
+    c6.metric("Average guess miss overall", f"{float(np.nanmean(maes_all)):.2f}%",
+              help="The mean of every set's average model MAE — forecast "
+                   "accuracy alone, independent of any optimization or rule.")
 
     with st.expander("Every random set — details"):
         display_table(
