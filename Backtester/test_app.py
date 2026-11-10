@@ -4,15 +4,19 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app import sample_diversified
+from app import sample_diversified, sample_sets
 from engine import run_pipeline
 from forecasting import (
     BASELINE_NAME,
     RULE_NAMES,
     SIMPLE_MODELS,
+    aggregate_predictions,
     buy_hold_net_returns,
     fit_model,
     forecast_one,
+    forecast_stats,
+    performance_stats,
+    positions,
     strategy_net_returns,
 )
 from portfolio import (
@@ -193,12 +197,136 @@ def check_avg_correlation():
     print("correlation: weighted by position size; ignored zero-weight names")
 
 
+def check_sample_sets():
+    sp500 = pd.DataFrame({
+        "Ticker": [f"S{i:02d}" for i in range(60)],
+        "Sector": ["A"] * 12 + ["B"] * 12 + ["C"] * 12 + ["D"] * 12 + ["E"] * 12,
+    })
+    sets = sample_sets(sp500, 5, "Random from the S&P 500", 3)
+    assert len(sets) == 3 and len({frozenset(s) for s in sets}) == 3
+    assert all(len(s) == 5 for s in sets)
+    print("multi-set: n distinct random stock sets sampled")
+
+
+def check_rules_and_positions():
+    idx = pd.bdate_range("2024-01-01", periods=4)
+    predicted = pd.Series([0.01, -0.01, 0.02, -0.02], index=idx)
+    previous = pd.Series([-0.01, 0.01, -0.01, 0.01], index=idx)
+
+    assert positions("Forecast up / down", predicted, previous).tolist() == [1.0, 0.0, 1.0, 0.0]
+    assert positions("Forecast long / short", predicted, previous).tolist() == [1.0, -1.0, 1.0, -1.0]
+
+    strong = positions("Strong forecast only", predicted, previous, band=0.005).ffill().fillna(0.0)
+    assert strong.tolist() == [1.0, 0.0, 1.0, 0.0]
+    mid = pd.Series([0.001, -0.001, 0.001, -0.001], index=idx)
+    hold = positions("Strong forecast only", mid, previous, band=0.005).ffill().fillna(0.0)
+    assert hold.tolist() == [0.0, 0.0, 0.0, 0.0]
+
+    dips = positions("Buy dips when forecast up", predicted, previous).ffill().fillna(0.0)
+    assert dips.tolist() == [1.0, 0.0, 1.0, 0.0]
+    no_dip = positions(
+        "Buy dips when forecast up",
+        pd.Series([0.01, 0.01], index=idx[:2]),
+        pd.Series([0.02, 0.02], index=idx[:2]),
+    ).ffill().fillna(0.0)
+    assert no_dip.tolist() == [0.0, 0.0]
+
+    # The baseline guesses tomorrow = yesterday, so "buy dips" (needs yesterday
+    # down AND a positive forecast) can never fire: the rule earns exactly 0%.
+    net, pos, _ = strategy_net_returns(previous, previous, "Buy dips when forecast up", previous)
+    assert pos.eq(0.0).all() and net.eq(0.0).all()
+    print("rules: every rule produces the documented positions")
+
+
+def check_performance_stats():
+    dates = pd.bdate_range("2024-01-01", periods=4)
+    net = pd.Series([0.01, -0.01, 0.01, -0.01], index=dates)
+    stats = performance_stats(net, rf_daily=0.0)
+    equity = (1.0 + net).cumprod()
+    assert abs(stats["Net return (%)"] - (equity.iloc[-1] - 1.0) * 100) < 1e-12
+    expected_dd = float((equity / equity.cummax() - 1.0).min()) * 100
+    assert abs(stats["Max drawdown (%)"] - expected_dd) < 1e-12
+    assert abs(stats["Sharpe"]) < 1e-9  # mean excess return is exactly zero
+    assert all(pd.isna(v) for v in performance_stats(pd.Series(dtype=float)).values())
+    print("stats: return, drawdown and Sharpe match hand-computed values")
+
+
+def check_forecast_stats():
+    stats = forecast_stats([0.01, -0.02, 0.03], [0.02, 0.01, 0.03])
+    assert abs(stats["MAE (%)"] - (0.01 + 0.03 + 0.0) / 3 * 100) < 1e-12
+    assert stats["Up-day accuracy (%)"] == 100.0
+    assert stats["Down-day accuracy (%)"] == 0.0
+    assert all(pd.isna(v) for v in forecast_stats([], []).values())
+    print("forecast quality: MAE and up/down accuracy match hand-computed values")
+
+
+def check_forecast_bounds():
+    rng = np.random.default_rng(5)
+    dates = pd.bdate_range("2024-01-01", periods=300)
+    train = rng.normal(0.0003, 0.01, 200)
+    series = pd.Series(np.concatenate([train, np.full(100, 0.02)]), index=dates)
+    pred = forecast_one(series, dates[:200], dates[200:], "Neural Network")
+    bound = max(5.0 * float(np.std(train)), 0.01)
+    assert np.isfinite(pred).all() and (pred.abs() <= bound + 1e-12).all()
+    print("forecast bounds: no model predicts a daily return beyond 5x training volatility")
+
+
+def check_engine_guards():
+    base = dict(
+        portfolio_strategies=["Equal-Weight"],
+        selection_metric="train",
+        rules=["Forecast up / down"],
+        band=0.005,
+        cost_bps=0.0,
+        capital=1000.0,
+        rf_annual=4.0,
+    )
+    cases = [
+        (synthetic_prices(periods=40), {**base, "train_share": 0.7, "models": ["Linear Regression"]}),
+        (synthetic_prices(periods=60), {**base, "train_share": 0.5, "models": ["Linear Regression"]}),
+        (synthetic_prices(), {**base, "train_share": 0.7, "models": ["Does Not Exist"]}),
+    ]
+    for frame, kwargs in cases:
+        try:
+            run_pipeline(frame, **kwargs)
+            raise AssertionError("run_pipeline accepted invalid inputs")
+        except ValueError:
+            pass
+    print("guards: too little history, a short train window and unknown models are rejected")
+
+
+def check_build_subset():
+    returns = synthetic_prices().pct_change().dropna()
+    subset = build_all(returns, 0.0, selected=["Equal-Weight"])
+    assert list(subset) == ["Equal-Weight"]
+    print("build_all: selected= builds only the requested strategies")
+
+
+def check_aggregate_predictions():
+    idx = pd.bdate_range("2024-01-01", periods=3)
+    preds = {"M": pd.DataFrame(
+        {"AAA": [0.01, 0.0, -0.01], "BBB": [0.02, 0.0, 0.0]}, index=idx
+    )}
+    weights = pd.Series({"AAA": 0.3, "BBB": 0.7})
+    out = aggregate_predictions(preds, weights)["M"]
+    assert np.allclose(out.to_numpy(), [0.017, 0.0, -0.003])
+    print("aggregate: portfolio guess is the weighted sum of stock guesses")
+
+
 if __name__ == "__main__":
     check_portfolios()
     check_baseline_and_options()
+    check_rules_and_positions()
+    check_performance_stats()
+    check_forecast_stats()
+    check_forecast_bounds()
     check_strategy_alignment_and_costs()
     check_no_leakage()
+    check_engine_guards()
+    check_build_subset()
+    check_aggregate_predictions()
     check_pipeline()
     check_diversified_sample()
     check_avg_correlation()
+    check_sample_sets()
     print("all checks passed")

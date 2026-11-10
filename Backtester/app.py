@@ -144,8 +144,8 @@ def equity_frame(series_map, capital):
     return frame.sort_index()
 
 
-def display_table(table, rename, helps, formats=None):
-    """Subset, rename and add tooltips so the table reads in plain English."""
+def display_table(table, rename, helps, formats=None, highlight=None):
+    """Subset, rename, add tooltips, and optionally tint the winner rows green."""
     formats = formats or {}
     out = table.rename(columns=rename)[list(rename.values())]
     config = {}
@@ -154,6 +154,14 @@ def display_table(table, rename, helps, formats=None):
             config[name] = st.column_config.NumberColumn(
                 help=helps.get(key), format=formats.get(name, "%.2f")
             )
+    if highlight is not None:
+        flags = dict(enumerate(bool(f) for f in highlight))
+
+        def tint_row(row):
+            on = flags.get(row.name, False)
+            return ["background-color: rgba(73, 190, 125, 0.18)" if on else None] * len(row.index)
+
+        out = out.reset_index(drop=True).style.apply(tint_row, axis=1)
     return st.dataframe(out, hide_index=True, width="stretch", column_config=config)
 
 
@@ -175,7 +183,9 @@ def show_portfolios(result):
         "Turned $" f"{result['capital']:,.0f} into",
         f"${result['capital'] * (1.0 + row['Test return (%)'] / 100.0):,.0f}",
     )
+    bh_growth = result["baseline_stats"]["Net return (%)"]
     c3.metric("Growth on test window", f"{row['Test return (%)']:+.2f}%",
+              delta=f"{row['Test return (%)'] - bh_growth:+.2f} pp vs buy & hold",
               help=METRIC_HELP["Return"])
     c4.metric("Worst losing stretch", f"{row['Test max drawdown (%)']:.2f}%",
               help=METRIC_HELP["Drawdown"])
@@ -201,12 +211,13 @@ def show_portfolios(result):
         },
         {"Sharpe": METRIC_HELP["Sharpe"], "Drawdown": METRIC_HELP["Drawdown"],
          "Return": METRIC_HELP["Return"], "Correlation": METRIC_HELP["Correlation"]},
+        highlight=(table["Strategy"] == best).to_numpy(),
     )
     st.caption(
-        "The correlation columns show whether diversification actually happened: "
-        "low average correlation means the stocks moved mostly on their own, and "
-        "a test number that stays low means the spreading of risk held up outside "
-        "the training window."
+        "The green row is the winner. Its columns show whether diversification "
+        "actually happened: low average correlation means the stocks moved "
+        "mostly on their own, and a test number that stays low means the "
+        "spreading of risk held up outside the training window."
     )
 
     with st.expander("Advanced: how average stock correlation is calculated"):
@@ -312,81 +323,77 @@ def show_forecasts_and_rules(result):
         "plotted, only what each rule would actually have earned, minus "
         "trading costs."
     )
-    frame = {"Buy & hold": result["baseline_net"]}
-    for model in result["portfolio_predictions"]:
-        curve = result["combo_curves"].get(f"{model} | Forecast up / down")
-        if curve is not None:
-            frame[f"{model} — invest when it says up"] = curve
-    fig = line_chart(equity_frame(frame, result["capital"]), "Portfolio value")
-    st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
-    st.caption(
-        "Each line is the growth of your money if you invested whenever that "
-        "model said 'up' and sat in cash otherwise. A model only beats the gray "
-        "buy & hold line if its up/down calls were good enough to overcome the "
-        "days it sat out. The table below tries the other rules too."
-    )
     table = result["combo_table"]
     if table.empty:
         st.info("No model/rule combinations were produced.")
         return
     best = table.iloc[0]
     bh = result["baseline_stats"]
-    st.markdown(f"**Best combination: follow {best['Model']} with the rule “{best['Rule']}”**")
+
+    net_returns = table["Net return (%)"].dropna()
+    bh_rank = int((net_returns > bh["Net return (%)"]).sum()) + 1
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Result", f"{best['Net return (%)']:+.2f}%", help=METRIC_HELP["Return"])
-    c2.metric("Beat buy & hold by", f"{best['Vs buy & hold (pp)']:+.2f} pp")
-    c3.metric("Sharpe ratio", "n/a" if pd.isna(best["Sharpe"]) else f"{best['Sharpe']:.2f}",
-              help=METRIC_HELP["Sharpe"])
-    c4.metric("Worst losing stretch", f"{best['Max drawdown (%)']:.2f}%",
+    c1.metric("Best trading strategy", f"{best['Model']} · {best['Rule']}")
+    c2.metric("Its result", f"{best['Net return (%)']:+.2f}%",
+              delta=f"{best['Vs buy & hold (pp)']:+.2f} pp vs buy & hold",
+              help=METRIC_HELP["Return"])
+    c3.metric("Buy & hold's rank", f"#{bh_rank} of {len(net_returns) + 1}",
+              help="Where simply buying and holding would place among all tested "
+                   "model + rule combinations (plus itself). Rank #1 means no "
+                   "rule beat just holding.")
+    c4.metric("Its worst losing stretch", f"{best['Max drawdown (%)']:.2f}%",
               help=METRIC_HELP["Drawdown"])
     st.caption(
         f"For comparison, simply buying and holding: {bh['Net return (%)']:+.2f}% "
         f"growth, {bh['Max drawdown (%)']:.2f}% worst losing stretch."
     )
 
-    st.markdown("**All model + rule combinations — best result first**")
-    display_table(
-        table,
-        {
-            "Rank": "Rank",
-            "Model": "Model",
-            "Rule": "Rule",
-            "Net return (%)": "Result (%)",
-            "Sharpe": "Sharpe ratio",
-            "Max drawdown (%)": "Worst losing stretch (%)",
-            "Vs buy & hold (pp)": "Difference vs buy & hold (pp)",
-        },
-        {"Sharpe": METRIC_HELP["Sharpe"], "Drawdown": METRIC_HELP["Drawdown"],
-         "Return": METRIC_HELP["Return"]},
-        formats={"Rank": "%d"},
+    top = table.head(5)
+    frame = {"Buy & hold": result["baseline_net"]}
+    for combo in top["Combination"]:
+        frame[combo] = result["combo_curves"][combo]
+    fig = line_chart(equity_frame(frame, result["capital"]), "Portfolio value")
+    fig.update_traces(line=dict(width=3), selector=dict(name=top["Combination"].iloc[0]))
+    fig.update_traces(
+        line=dict(color="#9AA0A6", width=1.5, dash="dash"),
+        selector=dict(name="Buy & hold"),
     )
-    st.caption(
-        "Reading tips: the naive baseline guesses 'tomorrow = yesterday', so the "
-        "buy-dips rule — which needs yesterday down AND a positive forecast — can "
-        "never fire for it. Its 0.00% result is by logic, not failure. And the "
-        "best of many combinations is partly luck, so treat the winner as a hint."
-    )
-    st.download_button(
-        "Download results CSV",
-        table.to_csv(index=False),
-        file_name="strategy_results.csv",
-        mime="text/csv",
-    )
-
-    combo = st.selectbox(
-        "Combination to chart", table["Combination"].tolist(), key="combo_chart"
-    )
-    frame = equity_frame(
-        {combo: result["combo_curves"][combo], "Buy & hold": result["baseline_net"]},
-        result["capital"],
-    )
-    fig = line_chart(frame, "Portfolio value")
-    fig.update_traces(line=dict(width=3), selector=dict(name=combo))
     st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
     st.caption(
-        f"Growth of ${result['capital']:,.0f} on the test window: the chosen "
-        "combination versus simply buying and holding."
+        "The five best model + rule combinations against buy & hold (dashed "
+        "gray); bold line = the single best. Only the top five are drawn so "
+        "the picture stays readable — every combination lives in the panel below."
     )
+
+    with st.expander("All model + rule combinations"):
+        display_table(
+            table,
+            {
+                "Rank": "Rank",
+                "Model": "Model",
+                "Rule": "Rule",
+                "Net return (%)": "Result (%)",
+                "Sharpe": "Sharpe ratio",
+                "Max drawdown (%)": "Worst losing stretch (%)",
+                "Vs buy & hold (pp)": "Difference vs buy & hold (pp)",
+            },
+            {"Sharpe": METRIC_HELP["Sharpe"], "Drawdown": METRIC_HELP["Drawdown"],
+             "Return": METRIC_HELP["Return"]},
+            formats={"Rank": "%d"},
+        )
+        st.caption(
+            "Reading tips: the naive baseline guesses 'tomorrow = yesterday', so "
+            "the buy-dips rule — which needs yesterday down AND a positive "
+            "forecast — can never fire for it. Its 0.00% result is by logic, not "
+            "failure. And the best of many combinations is partly luck, so treat "
+            "the winner as a hint."
+        )
+        st.download_button(
+            "Download results CSV",
+            table.to_csv(index=False),
+            file_name="strategy_results.csv",
+            mime="text/csv",
+        )
 
 
 def sample_uniform(sp500, count):
@@ -414,8 +421,21 @@ def sample_sp500(sp500, count, mode):
     return sample_uniform(sp500, count)
 
 
+def sample_sets(sp500, count, mode, n):
+    """n distinct random stock sets, each of `count` stocks."""
+    seen, sets, tries = set(), [], 0
+    while len(sets) < n and tries < n * 20:
+        tries += 1
+        candidate = sample_sp500(sp500, count, mode)
+        key = frozenset(candidate)
+        if key not in seen:
+            seen.add(key)
+            sets.append(candidate)
+    return sets
+
+
 def sidebar_tickers():
-    """Ticker choice: typed, random S&P 500 sample, or sector-diversified."""
+    """Ticker choice: typed, random S&P 500 samples, or sector-diversified."""
     st.subheader("1. Your stocks")
     mode = st.radio(
         "Choose stocks by",
@@ -425,25 +445,109 @@ def sidebar_tickers():
         text = st.text_input(
             "Tickers (comma separated)", "AAPL, MSFT, GOOGL, AMZN", key="typed_tickers"
         )
-        return tuple(dict.fromkeys(t.strip().upper() for t in text.split(",") if t.strip()))
+        tickers = tuple(dict.fromkeys(t.strip().upper() for t in text.split(",") if t.strip()))
+        return tickers, [tickers]
 
     try:
         sp500 = fetch_sp500()
     except Exception as exc:
         st.warning(f"Could not load the S&P 500 list: {exc}. Type tickers instead.")
-        return ()
+        return (), [()]
     count = st.number_input("How many stocks", 2, 50, 5)
+    n_sets = st.number_input("Random sets to compare", 1, 5, 1)
     if st.button("Shuffle selection"):
         st.session_state["random_sample"] = {
-            "mode": mode, "count": count, "tickers": sample_sp500(sp500, count, mode),
+            "mode": mode, "count": count, "n_sets": n_sets,
+            "sets": sample_sets(sp500, count, mode, n_sets),
         }
     state = st.session_state.get("random_sample")
-    if state is None or state["mode"] != mode or state["count"] != count:
-        state = {"mode": mode, "count": count, "tickers": sample_sp500(sp500, count, mode)}
+    if (state is None or state["mode"] != mode or state["count"] != count
+            or state["n_sets"] != n_sets):
+        state = {
+            "mode": mode, "count": count, "n_sets": n_sets,
+            "sets": sample_sets(sp500, count, mode, n_sets),
+        }
         st.session_state["random_sample"] = state
     note = ", spread across 5 sectors" if mode.startswith("Diversified") else ""
-    st.caption(f"Picked for you{note}: " + ", ".join(state["tickers"]))
-    return tuple(state["tickers"])
+    for i, sample in enumerate(state["sets"], 1):
+        label = f"Set {i}{note}" if len(state["sets"]) > 1 else f"Picked for you{note}"
+        st.caption(f"{label}: " + ", ".join(sample))
+    return state["sets"][0], state["sets"]
+
+
+def compact_tickers(tickers, keep=4):
+    if len(tickers) <= keep + 1:
+        return ", ".join(tickers)
+    return f"{len(tickers)} stocks: {', '.join(tickers[:keep])}, …"
+
+
+def run_signature(stock_sets, start, end, strategies, models, capital, cost_pct, model_options):
+    return repr((stock_sets, str(start), str(end), tuple(strategies), tuple(models),
+                 capital, float(cost_pct), model_options))
+
+
+def show_set_comparison(results, labels):
+    """Rank the random stock sets by their own backtest results."""
+    st.subheader("Which random set performed best?")
+    st.selectbox(
+        "Results shown in both tabs below — best performer by default",
+        labels,
+        key="set_view",
+    )
+    rows = []
+    for i, (tickers, res) in enumerate(results, 1):
+        table = res["portfolio_table"]
+        row = table.loc[table["Strategy"] == res["best_portfolio"]].iloc[0]
+        best_combo = res["combo_table"].iloc[0]
+        rows.append({
+            "Set": f"Set {i}",
+            "Tickers": compact_tickers(tickers),
+            "Strategy": res["best_portfolio"],
+            "Growth (%)": row["Test return (%)"],
+            "Sharpe": row["Test Sharpe"],
+            "Worst losing stretch (%)": row["Test max drawdown (%)"],
+            "Best rule result (%)": best_combo["Net return (%)"],
+            "Best rule": f"{best_combo['Model']} · {best_combo['Rule']}",
+        })
+    display_table(
+        pd.DataFrame(rows),
+        {
+            "Set": "Set",
+            "Tickers": "Tickers",
+            "Strategy": "Strategy",
+            "Growth (%)": "Growth (%)",
+            "Sharpe": "Sharpe ratio",
+            "Worst losing stretch (%)": "Worst losing stretch (%)",
+            "Best rule result (%)": "Best rule result (%)",
+            "Best rule": "Winning combination (model · rule)",
+        },
+        {"Sharpe": METRIC_HELP["Sharpe"], "Drawdown": METRIC_HELP["Drawdown"],
+         "Return": METRIC_HELP["Return"]},
+        highlight=[i == 0 for i in range(len(rows))],
+    )
+    if len(rows) > 1:
+        avg_growth = float(np.mean([r["Growth (%)"] for r in rows]))
+        avg_rule = float(np.mean([r["Best rule result (%)"] for r in rows]))
+        c1, c2 = st.columns(2)
+        c1.metric(
+            "Average growth across sets", f"{avg_growth:+.2f}%",
+            help="The mean of the per-set growth above — a fairer statistic than "
+                 "the single best set, which is luck-inflated.",
+        )
+        c2.metric(
+            "Average best-rule result", f"{avg_rule:+.2f}%",
+            help="The mean of each set's best model + rule result.",
+        )
+        st.caption(
+            "To compare diversified vs plain-random draws, run once with each "
+            "mode in the sidebar and compare these two averages."
+        )
+    st.caption(
+        "Ranked by each set's best model + rule result; the results in both tabs "
+        "below follow this selection. Fair warning: picking the best of several "
+        "random sets by test performance is heavy peeking at the exam — the "
+        "winner's edge is partly luck and will likely shrink on fresh data."
+    )
 
 
 def main():
@@ -456,7 +560,7 @@ def main():
     )
 
     with st.sidebar:
-        tickers = sidebar_tickers()
+        tickers, stock_sets = sidebar_tickers()
 
         start = st.date_input("History starts", date.today() - timedelta(days=4 * 365))
         end = st.date_input("History ends", date.today())
@@ -510,36 +614,110 @@ def main():
             with st.spinner(
                 "Downloading prices, building portfolios and running the backtest..."
             ):
-                prices = fetch_closes(tickers, start, end)
-                prices = prices.dropna(axis=1, how="all").dropna(how="any")
-                if prices.empty or len(prices) < 60:
-                    raise ValueError(
-                        "not enough overlapping price history; try more tickers or a wider date range"
-                    )
-                result = run_cached_backtest(
-                    prices,
-                    tickers,
-                    train_share=TRAIN_SHARE,
-                    portfolio_strategies=strategies,
-                    selection_metric="test",
-                    models=models,
-                    rules=RULE_NAMES,
-                    band=BAND,
-                    cost_bps=cost_pct * 100.0,
-                    capital=capital,
-                    rf_annual=RF_ANNUAL,
-                    model_options=model_options,
+                multi = len(stock_sets) > 1
+                results = []
+                progress = (
+                    st.progress(0.0, text="Backtesting random sets...") if multi else None
                 )
+                for i, stock_set in enumerate(stock_sets, 1):
+                    label = f"Set {i} of {len(stock_sets)} ({', '.join(stock_set)})"
+                    if progress:
+                        progress.progress((i - 1) / len(stock_sets), text=f"Backtesting {label}...")
+                    try:
+                        prices = fetch_closes(stock_set, start, end)
+                        prices = prices.dropna(axis=1, how="all").dropna(how="any")
+                        if prices.empty or len(prices) < 60:
+                            raise ValueError(
+                                "not enough overlapping price history; try more tickers "
+                                "or a wider date range"
+                            )
+                        res = run_cached_backtest(
+                            prices,
+                            stock_set,
+                            train_share=TRAIN_SHARE,
+                            portfolio_strategies=strategies,
+                            selection_metric="test",
+                            models=models,
+                            rules=RULE_NAMES,
+                            band=BAND,
+                            cost_bps=cost_pct * 100.0,
+                            capital=capital,
+                            rf_annual=RF_ANNUAL,
+                            model_options=model_options,
+                        )
+                        results.append((stock_set, res))
+                        if progress:
+                            growth = float(
+                                res["portfolio_table"]
+                                .loc[res["portfolio_table"]["Strategy"] == res["best_portfolio"],
+                                     "Test return (%)"]
+                                .iloc[0]
+                            )
+                            st.toast(
+                                f"{label} finished: {growth:+.1f}% growth", icon="✅"
+                            )
+                    except Exception as exc:
+                        if multi:
+                            st.toast(f"{label} skipped: {exc}", icon="⚠️")
+                            st.warning(f"Set {i} ({', '.join(stock_set)}) skipped: {exc}")
+                        else:
+                            raise
+                if progress:
+                    progress.empty()
+                if not results:
+                    raise ValueError("no stock set could be backtested")
+
+                def best_combo_return(pair):
+                    combo_table = pair[1]["combo_table"]
+                    if combo_table.empty:
+                        return float("-inf")
+                    return float(combo_table.iloc[0]["Net return (%)"])
+
+                results.sort(key=best_combo_return, reverse=True)
+                tickers, result = results[0]
+                st.session_state["set_results"] = results if multi else None
                 st.session_state["result"] = result
+                st.session_state["run_signature"] = run_signature(
+                    stock_sets, start, end, strategies, models, capital, cost_pct, model_options
+                )
         except Exception as exc:
             st.error(f"Could not complete the backtest: {exc}")
             return
 
     if "result" not in st.session_state:
-        st.info("Set up the backtest in the sidebar, then click **Run backtest**.")
+        image_col, text_col = st.columns([1, 3], gap="medium")
+        with image_col:
+            st.image("capybara.png", width=150)
+        with text_col:
+            st.markdown("### Pick stocks, split your money, test the forecasts")
+            st.markdown(
+                "1. Choose stocks in the sidebar — type them, sample the S&P 500, "
+                "or go sector-diversified.\n"
+                "2. Hit **Run backtest**.\n"
+                "3. Compare portfolio strategies, guess quality and trading rules — "
+                "then judge for yourself whether the clever stuff beat buy & hold."
+            )
         return
 
+    set_results = st.session_state.get("set_results")
     result = st.session_state["result"]
+    labels = None
+    if st.session_state.get("run_signature") != run_signature(
+        stock_sets, start, end, strategies, models, capital, cost_pct, model_options
+    ):
+        st.info(
+            "ℹ️ The sidebar has changed since this run — press **Run backtest** "
+            "to refresh the results below."
+        )
+    if set_results:
+        labels = [
+            f"Set {i}: {', '.join(tickers)}" + (" — best performer" if i == 1 else "")
+            for i, (tickers, _) in enumerate(set_results, 1)
+        ]
+        if st.session_state.get("set_view") not in labels:
+            st.session_state["set_view"] = labels[0]
+        result = set_results[labels.index(st.session_state["set_view"])][1]
+
     if result.get("missing"):
         st.warning(
             f"No data for: {', '.join(result['missing'])}. Results use the other tickers."
@@ -555,6 +733,13 @@ def main():
         f"were graded on {result['test_start']:%d %b %Y} to {result['test_end']:%d %b %Y} "
         f"({result['test_size']} trading days) — data they had never seen."
     )
+
+    if set_results:
+        showing = str(st.session_state.get("set_view", labels[0])).split(":")[0]
+        with st.expander(
+            f"Compare all {len(set_results)} random sets — tabs are showing: {showing}"
+        ):
+            show_set_comparison(set_results, labels)
 
     tabs = st.tabs(["1. Portfolio strategies", "2. Forecasts & trading rules"])
     with tabs[0]:
