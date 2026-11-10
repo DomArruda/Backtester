@@ -509,6 +509,7 @@ def show_set_comparison(results, labels):
     )
     rows = []
     per_strategy = {}
+    per_rule = {}
     for i, (tickers, res) in enumerate(results, 1):
         table = res["portfolio_table"]
         row = table.loc[table["Strategy"] == res["best_portfolio"]].iloc[0]
@@ -527,19 +528,29 @@ def show_set_comparison(results, labels):
             stats = per_strategy.setdefault(srow["Strategy"], {"growth": [], "sharpe": []})
             stats["growth"].append(srow["Test return (%)"])
             stats["sharpe"].append(srow["Test Sharpe"])
+        for rule, grp in res["combo_table"].groupby("Rule"):
+            stats = per_rule.setdefault(rule, {"net": [], "sharpe": []})
+            stats["net"].append(float(grp["Net return (%)"].mean()))
+            stats["sharpe"].append(float(grp["Sharpe"].mean()))
 
     selected = results[labels.index(st.session_state["set_view"])][1]
     sel_row = selected["portfolio_table"].loc[
         selected["portfolio_table"]["Strategy"] == selected["best_portfolio"]
     ].iloc[0]
     sel_combo = selected["combo_table"].iloc[0]
+    sel_rule_avgs = selected["combo_table"].groupby("Rule")["Net return (%)"].mean()
+    best_rule_set = sel_rule_avgs.idxmax()
     st.markdown("**The selected set's winner**")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Best strategy", selected["best_portfolio"])
     c2.metric("Growth", f"{sel_row['Test return (%)']:+.2f}%", help=METRIC_HELP["Return"])
-    c3.metric("Best rule result", f"{sel_combo['Net return (%)']:+.2f}%",
-              help=METRIC_HELP["Return"])
-    c4.metric("Worst losing stretch", f"{sel_row['Test max drawdown (%)']:.2f}%",
+    c3.metric("Best combo result", f"{sel_combo['Net return (%)']:+.2f}%",
+              help="The best single model + rule combination in this set.")
+    c4.metric("Best rule (any model)", best_rule_set,
+              delta=f"{sel_rule_avgs[best_rule_set]:+.2f}% avg across models",
+              help="The rule whose average over every model is best in this set "
+                   "— it measures the rule itself, not one model's quality.")
+    c5.metric("Worst losing stretch", f"{sel_row['Test max drawdown (%)']:.2f}%",
               help=METRIC_HELP["Drawdown"])
 
     avg_growth = float(np.nanmean([r["Growth (%)"] for r in rows]))
@@ -548,15 +559,23 @@ def show_set_comparison(results, labels):
         vals = np.asarray(per_strategy[name][key], dtype=float)
         return float(np.nanmean(vals)) if np.isfinite(vals).any() else np.nan
     best_avg_name = max(per_strategy, key=lambda n: avg_of(n, "growth"))
+    def rule_avg(name, key):
+        vals = np.asarray(per_rule[name][key], dtype=float)
+        return float(np.nanmean(vals)) if np.isfinite(vals).any() else np.nan
+    best_rule_overall = max(per_rule, key=lambda r: rule_avg(r, "net"))
     st.markdown("**Across all random sets**")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Average growth", f"{avg_growth:+.2f}%",
               help="The mean of the per-set growth — a fairer statistic than the "
                    "single best set, which is luck-inflated.")
-    c2.metric("Average best-rule result", f"{avg_rule:+.2f}%",
+    c2.metric("Average best-combo result", f"{avg_rule:+.2f}%",
               help="The mean of each set's best model + rule result.")
     c3.metric("Best strategy on average", best_avg_name)
-    c4.metric("Its average Sharpe", f"{avg_of(best_avg_name, 'sharpe'):.2f}",
+    c4.metric("Best rule on average", best_rule_overall,
+              delta=f"{rule_avg(best_rule_overall, 'net'):+.2f}% avg across sets and models",
+              help="The rule whose average over every model and every set is "
+                   "best — the most dependable rule overall.")
+    c5.metric("Best strategy's avg Sharpe", f"{avg_of(best_avg_name, 'sharpe'):.2f}",
               help=METRIC_HELP["Sharpe"])
 
     with st.expander("Every random set — details"):
@@ -601,12 +620,37 @@ def show_set_comparison(results, labels):
             formats={"Sets tested": "%d"},
             highlight=[i == 0 for i in range(len(strategy_table))],
         )
+    with st.expander("Rule averages — all sets (model-agnostic)"):
+        rule_table = pd.DataFrame([
+            {
+                "Rule": rule,
+                "Sets": len(s["net"]),
+                "Avg result (%)": rule_avg(rule, "net"),
+                "Avg Sharpe": rule_avg(rule, "sharpe"),
+            }
+            for rule, s in per_rule.items()
+        ]).sort_values(
+            "Avg result (%)", ascending=False, na_position="last"
+        ).reset_index(drop=True)
+        display_table(
+            rule_table,
+            {
+                "Rule": "Rule",
+                "Sets": "Sets tested",
+                "Avg result (%)": "Average result (%)",
+                "Avg Sharpe": "Average Sharpe",
+            },
+            {"Return": METRIC_HELP["Return"], "Sharpe": METRIC_HELP["Sharpe"]},
+            formats={"Sets tested": "%d"},
+            highlight=[i == 0 for i in range(len(rule_table))],
+        )
     st.caption(
         "The averages smooth out single-set luck. To compare diversified vs "
         "plain-random draws, run once with each mode in the sidebar and compare "
         "the averages. Fair warning: picking the best of several random sets by "
         "test performance is heavy peeking — expect the winner's edge to shrink "
-        "on fresh data."
+        "on fresh data. Note: rule averages blend every model, so they show "
+        "which rule tends to help, not how good any one model is."
     )
 
 
