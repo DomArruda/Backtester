@@ -175,6 +175,9 @@ def show_portfolios(result):
         "Each strategy is a different way of splitting your money across the "
         "chosen stocks. The splits are decided using only the training window."
     )
+    st.caption(
+        "**Stocks in this set:** " + ", ".join(result["prices"].columns)
+    )
     table = result["portfolio_table"].sort_values(
         "Test return (%)", ascending=False, na_position="last"
     ).reset_index(drop=True)
@@ -182,13 +185,13 @@ def show_portfolios(result):
     best = result["best_portfolio"]
     row = table.loc[table["Strategy"] == best].iloc[0]
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Selected strategy", best)
+    c1.metric("Best strategy", best)
     c2.metric(
         "Turned $" f"{result['capital']:,.0f} into",
         f"${result['capital'] * (1.0 + row['Test return (%)'] / 100.0):,.0f}",
     )
     bh_growth = result["baseline_stats"]["Net return (%)"]
-    c3.metric("Growth on test window", f"{row['Test return (%)']:+.2f}%",
+    c3.metric("Test growth", f"{row['Test return (%)']:+.2f}%",
               delta=f"{row['Test return (%)'] - bh_growth:+.2f} pp vs buy & hold",
               help=METRIC_HELP["Return"])
     c4.metric("Worst losing stretch", f"{row['Test max drawdown (%)']:.2f}%",
@@ -198,10 +201,12 @@ def show_portfolios(result):
         "this strategy because it performed best on the test window (the exam it "
         "had never seen). Its splits were still decided using only the training "
         "window, but the choice itself looks at the exam — treat it as a hint, "
-        "not a promise."
+        "not a promise. Scope: the big numbers above belong to the winning "
+        "strategy only; the table below compares every strategy on this same "
+        "stock set."
     )
 
-    st.markdown("**All tested strategies**")
+    st.markdown(f"**All {len(table)} strategies, compared on this stock set**")
     display_table(
         table,
         {
@@ -291,6 +296,9 @@ def show_forecasts_and_rules(result):
         "returns. The rules then turn each guess into a move: invest, do "
         "nothing, or bet against. Costs apply whenever the position changes; "
         "borrow costs and taxes are ignored."
+    )
+    st.caption(
+        "**Stocks in this set:** " + ", ".join(result["prices"].columns)
     )
 
     display_table(
