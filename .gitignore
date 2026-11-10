@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Nested git repositories (each keeps its own history)
+StonkForecaster/
+PortfolioOptimization/
