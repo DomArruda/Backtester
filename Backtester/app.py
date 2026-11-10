@@ -197,13 +197,9 @@ def show_portfolios(result):
     c4.metric("Worst losing stretch", f"{row['Test max drawdown (%)']:.2f}%",
               help=METRIC_HELP["Drawdown"])
     st.caption(
-        f"Selected algorithm: **{STRATEGY_ALGOS.get(best, best)}**. The app picked "
-        "this strategy because it performed best on the test window (the exam it "
-        "had never seen). Its splits were still decided using only the training "
-        "window, but the choice itself looks at the exam — treat it as a hint, "
-        "not a promise. Scope: the big numbers above belong to the winning "
-        "strategy only; the table below compares every strategy on this same "
-        "stock set."
+        f"Winning algorithm: **{STRATEGY_ALGOS.get(best, best)}** — chosen by its "
+        "test-window result (a peek at the exam, though the splits themselves "
+        "used training data only), so treat it as a hint, not a promise."
     )
 
     st.markdown(f"**All {len(table)} strategies, compared on this stock set**")
@@ -223,10 +219,12 @@ def show_portfolios(result):
         highlight=(table["Strategy"] == best).to_numpy(),
     )
     st.caption(
-        "The green row is the winner. Its columns show whether diversification "
-        "actually happened: low average correlation means the stocks moved "
-        "mostly on their own, and a test number that stays low means the "
-        "spreading of risk held up outside the training window."
+        "The green row is the winner — the numbers above describe only that "
+        "row, and every strategy below is compared on this same stock set. "
+        "The correlation columns show whether diversification actually "
+        "happened: low average correlation means the stocks moved mostly on "
+        "their own, and a test number that stays low means the spreading of "
+        "risk held up outside the training window."
     )
 
     with st.expander("Advanced: how average stock correlation is calculated"):
