@@ -551,7 +551,7 @@ def show_set_comparison(results, labels):
             stats = per_pair.setdefault(key, {"net": [], "sharpe": []})
             stats["net"].append(float(crow["Net return (%)"]))
             stats["sharpe"].append(float(crow["Sharpe"]))
-        for strat, combo_table in res["strategy_combos"].items():
+        for strat, combo_table in res.get("strategy_combos", {}).items():
             for rule, grp in combo_table.groupby("Rule"):
                 key = (strat, rule)
                 stats = per_opt_rule.setdefault(key, {"net": [], "sharpe": []})
@@ -638,38 +638,39 @@ def show_set_comparison(results, labels):
             formats={"Sets tested": "%d"},
             highlight=[i == 0 for i in range(len(strategy_table))],
         )
-    with st.expander("Optimization × rule averages — all sets"):
-        st.caption(
-            "Every portfolio split (optimization) was traded with every rule "
-            "under the same forecasts, averaged over all sets. This shows how "
-            "the split and the rule interact — a rule that looks best on one "
-            "split may not look best on another."
-        )
-        opt_rule_table = pd.DataFrame([
-            {
-                "Optimization": strat,
-                "Rule": rule,
-                "Sets": len(s["net"]),
-                "Avg result (%)": opt_rule_avg(strat, rule, "net"),
-                "Avg Sharpe": opt_rule_avg(strat, rule, "sharpe"),
-            }
-            for (strat, rule), s in per_opt_rule.items()
-        ]).sort_values(
-            "Avg result (%)", ascending=False, na_position="last"
-        ).reset_index(drop=True)
-        display_table(
-            opt_rule_table,
-            {
-                "Optimization": "Optimization",
-                "Rule": "Rule",
-                "Sets": "Sets tested",
-                "Avg result (%)": "Average result (%)",
-                "Avg Sharpe": "Average Sharpe",
-            },
-            {"Return": METRIC_HELP["Return"], "Sharpe": METRIC_HELP["Sharpe"]},
-            formats={"Sets tested": "%d"},
-            highlight=[i == 0 for i in range(len(opt_rule_table))],
-        )
+    if per_opt_rule:
+        with st.expander("Optimization × rule averages — all sets"):
+            st.caption(
+                "Every portfolio split (optimization) was traded with every rule "
+                "under the same forecasts, averaged over all sets. This shows how "
+                "the split and the rule interact — a rule that looks best on one "
+                "split may not look best on another."
+            )
+            opt_rule_table = pd.DataFrame([
+                {
+                    "Optimization": strat,
+                    "Rule": rule,
+                    "Sets": len(s["net"]),
+                    "Avg result (%)": opt_rule_avg(strat, rule, "net"),
+                    "Avg Sharpe": opt_rule_avg(strat, rule, "sharpe"),
+                }
+                for (strat, rule), s in per_opt_rule.items()
+            ]).sort_values(
+                "Avg result (%)", ascending=False, na_position="last"
+            ).reset_index(drop=True)
+            display_table(
+                opt_rule_table,
+                {
+                    "Optimization": "Optimization",
+                    "Rule": "Rule",
+                    "Sets": "Sets tested",
+                    "Avg result (%)": "Average result (%)",
+                    "Avg Sharpe": "Average Sharpe",
+                },
+                {"Return": METRIC_HELP["Return"], "Sharpe": METRIC_HELP["Sharpe"]},
+                formats={"Sets tested": "%d"},
+                highlight=[i == 0 for i in range(len(opt_rule_table))],
+            )
     with st.expander("Trading rules & forecasters — all sets"):
         st.caption(
             "Each row averages one model + rule combination over every set's "
