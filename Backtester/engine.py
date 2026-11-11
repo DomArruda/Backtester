@@ -100,10 +100,25 @@ def run_pipeline(
     train_port = (train_returns * weights).sum(axis=1)
     test_port = (test_returns * weights).sum(axis=1)
 
+    # Fit once per (ticker, forecaster) — fits are weight-independent — then
+    # evaluate every optimization's split against the same predictions.
     predictions, model_errors = forecast_portfolio(
-        returns, weights, train_returns.index, test_returns.index,
-        models, model_options=model_options,
+        returns, pd.Series(1.0, index=returns.columns), train_returns.index,
+        test_returns.index, models, model_options=model_options,
     )
+    strategy_combos = {}
+    for name, split_weights in portfolios.items():
+        split_port = (test_returns * split_weights).sum(axis=1)
+        split_prev = pd.concat([
+            (train_returns * split_weights).sum(axis=1), split_port
+        ]).shift(1).loc[test_returns.index]
+        split_aggregated = aggregate_predictions(predictions, split_weights)
+        split_table, _, _, _, _ = evaluate_rules(
+            split_port, split_aggregated, split_prev, rules,
+            band=band, cost_bps=cost_bps, rf_daily=rf_daily,
+        )
+        strategy_combos[name] = split_table
+
     portfolio_predictions = aggregate_predictions(predictions, weights)
 
     portfolio_forecast_table = pd.DataFrame([
@@ -139,6 +154,7 @@ def run_pipeline(
         "combo_table": combo_table,
         "combo_curves": combo_curves,
         "combo_positions": combo_positions,
+        "strategy_combos": strategy_combos,
         "baseline_net": baseline_net,
         "baseline_stats": baseline_stats,
         "capital": capital,

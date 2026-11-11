@@ -155,6 +155,11 @@ def check_pipeline():
     )
     combos = result["combo_table"]
     assert len(combos) == len(SIMPLE_MODELS) * len(RULE_NAMES)
+    assert set(result["strategy_combos"]) == {
+        "Equal-Weight", "Minimum Variance", "Maximum Sharpe Ratio"
+    }
+    for strategy, combo_table in result["strategy_combos"].items():
+        assert len(combo_table) == len(SIMPLE_MODELS) * len(RULE_NAMES), strategy
     assert combos["Rank"].tolist() == list(range(1, len(combos) + 1))
     assert combos["Net return (%)"].is_monotonic_decreasing
     assert set(combos["Rule"]) == set(RULE_NAMES)
