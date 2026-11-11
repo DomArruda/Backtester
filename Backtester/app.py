@@ -229,6 +229,31 @@ def show_portfolios(result):
         "risk held up outside the training window."
     )
 
+    with st.expander("How each optimization works"):
+        st.markdown(
+            "**Equal-Weight (1/N)** — Put the same share of money in every "
+            "stock. It makes no estimates at all, so nothing can fool it — "
+            "research famously shows this simple split is hard to beat.\n\n"
+            "**Minimum Variance (GMVP)** — Search for the split whose combined "
+            "daily moves wiggle the least, using how volatile each stock is "
+            "and how the stocks move together. It never looks at which stock "
+            "*earns* more — only which combination is calmest.\n\n"
+            "**Maximum Sharpe Ratio (tangency portfolio)** — Search for the "
+            "split with the best historical return per unit of risk. Because "
+            "it averages past returns, it trusts history more — which is also "
+            "how it gets fooled when the future changes.\n\n"
+            "**Hierarchical Risk Parity (HRP)** — Group stocks that move alike "
+            "into families, split the money between families by their risk, "
+            "then within each family by each stock's own risk. It avoids "
+            "inverting the covariance matrix, so it stays stable even when "
+            "correlations shift suddenly.\n\n"
+            "All four decide their split using the training window only, and "
+            "all are long-only: every stock gets 0% or more, and the shares "
+            "sum to 100%. The default path — buying and holding the set — "
+            "uses no optimization at all; everything here is an attempt to "
+            "beat that by splitting differently."
+        )
+
     with st.expander("Advanced: how average stock correlation is calculated"):
         st.markdown(
             "**The idea in one sentence:** it is an average of every pair of "
@@ -378,6 +403,29 @@ def show_forecasts_and_rules(result):
         "gray); bold line = the single best. Only the top five are drawn so "
         "the picture stays readable — every combination lives in the panel below."
     )
+
+    with st.expander("How the trading rules work"):
+        st.markdown(
+            "Every rule converts a model's guess into a position for the day: "
+            "invest (long), sit in cash, or bet against (short). The position "
+            "for a day comes from that morning's guess — built only from "
+            "returns before that day — and earns that day's real return. "
+            "Trading costs apply whenever the position changes.\n\n"
+            "**Forecast up / down** — Invest when the guess is positive; cash "
+            "when negative. The simplest trend-follower.\n\n"
+            "**Strong forecast only** — Invest only when the guess is "
+            "confidently positive (beyond the 0.5% band); cash when "
+            "confidently negative; in between, keep yesterday's position.\n\n"
+            "**Forecast long / short** — Invest on positive guesses and bet "
+            "against negative ones — always in the market, one side or the "
+            "other.\n\n"
+            "**Buy dips when forecast up** — Buy only after a down day with a "
+            "positive guess (the dip gets bought); cash when the guess is "
+            "negative; otherwise hold.\n\n"
+            "Same guess, different rule, different money — that is why the "
+            "chart above shows big gaps between models, and why the ranking "
+            "table below matters."
+        )
 
     with st.expander("All model + rule combinations"):
         display_table(
