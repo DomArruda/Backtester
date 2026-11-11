@@ -318,9 +318,9 @@ def show_forecasts_and_rules(result):
     st.subheader("Were the guesses good, and did trading on them pay off?")
     st.caption(
         "Each model guesses the next day's return from the last five days of "
-        "returns. The rules then turn each guess into a move: invest, do "
-        "nothing, or bet against. Costs apply whenever the position changes; "
-        "borrow costs and taxes are ignored."
+        "returns. The rules then turn each guess into a move: invest or sit "
+        "in cash. Costs apply whenever the position changes; borrow costs and "
+        "taxes are ignored."
     )
     st.caption(
         "**Stocks in this set:** " + ", ".join(result["prices"].columns)
@@ -407,18 +407,15 @@ def show_forecasts_and_rules(result):
     with st.expander("How the trading rules work"):
         st.markdown(
             "Every rule converts a model's guess into a position for the day: "
-            "invest (long), sit in cash, or bet against (short). The position "
-            "for a day comes from that morning's guess — built only from "
-            "returns before that day — and earns that day's real return. "
-            "Trading costs apply whenever the position changes.\n\n"
+            "invest (long) or sit in cash — no shorting. The position for a "
+            "day comes from that morning's guess — built only from returns "
+            "before that day — and earns that day's real return. Trading "
+            "costs apply whenever the position changes.\n\n"
             "**Forecast up / down** — Invest when the guess is positive; cash "
             "when negative. The simplest trend-follower.\n\n"
             "**Strong forecast only** — Invest only when the guess is "
             "confidently positive (beyond the 0.5% band); cash when "
             "confidently negative; in between, keep yesterday's position.\n\n"
-            "**Forecast long / short** — Invest on positive guesses and bet "
-            "against negative ones — always in the market, one side or the "
-            "other.\n\n"
             "**Buy dips when forecast up** — Buy only after a down day with a "
             "positive guess (the dip gets bought); cash when the guess is "
             "negative; otherwise hold.\n\n"

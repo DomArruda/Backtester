@@ -175,7 +175,6 @@ def forecast_stats(actual, predicted):
 RULE_NAMES = [
     "Forecast up / down",
     "Strong forecast only",
-    "Forecast long / short",
     "Buy dips when forecast up",
 ]
 
@@ -185,7 +184,6 @@ RULE_HELP = {
         "Invest only when the forecast exceeds the band; cash below the negative band; "
         "otherwise hold the previous position."
     ),
-    "Forecast long / short": "Invest in positive forecasts and bet against negative forecasts.",
     "Buy dips when forecast up": (
         "Buy after a down day when the forecast is positive; cash when the forecast is "
         "negative; otherwise hold."
@@ -203,8 +201,6 @@ def positions(rule, predicted, previous_returns, band=0.005):
         out[predicted > band] = 1.0
         out[predicted < -band] = 0.0
         return out
-    if rule == "Forecast long / short":
-        return pd.Series(np.where(predicted > 0, 1.0, -1.0), index=predicted.index)
     if rule == "Buy dips when forecast up":
         out = pd.Series(np.nan, index=predicted.index)
         out[predicted <= 0] = 0.0

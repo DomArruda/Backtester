@@ -220,7 +220,6 @@ def check_rules_and_positions():
     previous = pd.Series([-0.01, 0.01, -0.01, 0.01], index=idx)
 
     assert positions("Forecast up / down", predicted, previous).tolist() == [1.0, 0.0, 1.0, 0.0]
-    assert positions("Forecast long / short", predicted, previous).tolist() == [1.0, -1.0, 1.0, -1.0]
 
     strong = positions("Strong forecast only", predicted, previous, band=0.005).ffill().fillna(0.0)
     assert strong.tolist() == [1.0, 0.0, 1.0, 0.0]
