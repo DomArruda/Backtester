@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 
-from app import sample_diversified, sample_sets
+from app import sample_diversified, sample_sets, show_set_comparison
 from engine import run_pipeline
 from forecasting import (
     BASELINE_NAME,
@@ -318,6 +319,26 @@ def check_aggregate_predictions():
     print("aggregate: portfolio guess is the weighted sum of stock guesses")
 
 
+def check_comparison_panel_smoke():
+    kwargs = dict(
+        train_share=0.7,
+        portfolio_strategies=STRATEGY_NAMES,
+        selection_metric="train",
+        models=SIMPLE_MODELS,
+        rules=RULE_NAMES,
+        band=0.005,
+        cost_bps=0.0,
+        capital=10000.0,
+        rf_annual=4.0,
+    )
+    result = run_pipeline(synthetic_prices(), **kwargs)
+    results = [(("AAA", "BBB", "CCC"), result)] * 2
+    labels = ["Set 1: AAA, BBB, CCC — best performer", "Set 2: AAA, BBB, CCC"]
+    st.session_state["set_view"] = labels[0]
+    show_set_comparison(results, labels)
+    print("comparison panel: aggregates metrics and renders without error")
+
+
 if __name__ == "__main__":
     check_portfolios()
     check_baseline_and_options()
@@ -334,4 +355,5 @@ if __name__ == "__main__":
     check_diversified_sample()
     check_avg_correlation()
     check_sample_sets()
+    check_comparison_panel_smoke()
     print("all checks passed")

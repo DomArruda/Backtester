@@ -516,6 +516,7 @@ def show_set_comparison(results, labels):
     per_rule = {}
     per_pair = {}
     per_opt_rule = {}
+    per_model_mae = {}
     maes_all = []
     for i, (tickers, res) in enumerate(results, 1):
         table = res["portfolio_table"]
