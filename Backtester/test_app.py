@@ -335,6 +335,9 @@ def check_comparison_panel_smoke():
     labels = ["Set 1: AAA, BBB, CCC — best performer", "Set 2: AAA, BBB, CCC"]
     st.session_state["set_view"] = labels[0]
     show_set_comparison(results, labels)
+    single = [("XYZ", result)]
+    st.session_state["set_view"] = "Set 1: XYZ"
+    show_set_comparison(single, ["Set 1: XYZ"])
     print("comparison panel: aggregates metrics and renders without error")
 
 

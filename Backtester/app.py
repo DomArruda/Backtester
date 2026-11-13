@@ -547,10 +547,11 @@ def run_signature(stock_sets, start, end, strategies, models, capital, cost_pct,
 
 def show_set_comparison(results, labels):
     """Rank the random stock sets by their own backtest results."""
-    st.markdown(
-        "This panel answers two questions: **which random set won?** (the "
-        "metrics) and **which strategy does best in general?** (the averages)."
-    )
+    if len(results) > 1:
+        st.markdown(
+            "This panel answers two questions: **which random set won?** (the "
+            "metrics) and **which strategy does best in general?** (the averages)."
+        )
     st.selectbox(
         "Results shown in both tabs below — best performer by default",
         labels,
@@ -910,7 +911,7 @@ def main():
 
                 results.sort(key=best_combo_return, reverse=True)
                 tickers, result = results[0]
-                st.session_state["set_results"] = results if multi else None
+                st.session_state["set_results"] = results
                 st.session_state["result"] = result
                 st.session_state["run_signature"] = run_signature(
                     stock_sets, start, end, strategies, models, capital, cost_pct, model_options
@@ -946,7 +947,8 @@ def main():
         )
     if set_results:
         labels = [
-            f"Set {i}: {', '.join(tickers)}" + (" — best performer" if i == 1 else "")
+            f"Set {i}: {', '.join(tickers)}"
+            + (" — best performer" if i == 1 and len(set_results) > 1 else "")
             for i, (tickers, _) in enumerate(set_results, 1)
         ]
         if st.session_state.get("set_view") not in labels:
@@ -971,9 +973,12 @@ def main():
 
     if set_results:
         showing = str(st.session_state.get("set_view", labels[0])).split(":")[0]
-        with st.expander(
+        title = (
             f"Compare all {len(set_results)} random sets — tabs are showing: {showing}"
-        ):
+            if len(set_results) > 1
+            else f"Key metrics — tabs are showing: {showing}"
+        )
+        with st.expander(title):
             show_set_comparison(set_results, labels)
 
     tabs = st.tabs(["1. Portfolio strategies", "2. Forecasts & trading rules"])
